@@ -34,6 +34,7 @@ def get_dataset(name: str) -> datasets.DatasetDict:
             "cols_to_remove": ['url', 'timestamp'],
         },
         "alpaca": {"path": "tatsu-lab/alpaca", "cols_to_remove": ['input', 'output', 'instruction']},
+        "legal": {"path": "martinnnnn/ato-llm-legal"},
     }
 
     if name not in ds_properties:

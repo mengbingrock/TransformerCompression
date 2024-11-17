@@ -5,10 +5,12 @@ import pytest
 
 from slicegpt import data_utils, hf_utils
 
+[pytest]
+cache_dir = "/data/martin"
 
 @pytest.mark.parametrize(
     "dataset_name",
-    ["wikitext2", "ptb", "c4", "alpaca"],
+    ["wikitext2", "ptb", "c4", "alpaca", "legal"],
 )
 def test_get_dataset(dataset_name) -> None:
     if dataset_name == "c4":
@@ -36,6 +38,7 @@ def test_get_dataset(dataset_name) -> None:
         ("ptb", 256, 2, 4),
         ("c4", 128, 2, 4),
         ("alpaca", 64, 2, 4),
+        ("legal", 64, 2, 4),
     ],
 )
 def test_get_loaders(dataset_name: str, max_seqlen: int, batch_size: int, nsamples: int) -> None:
