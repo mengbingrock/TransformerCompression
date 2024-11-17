@@ -6,7 +6,7 @@ import pytest
 from slicegpt import data_utils, hf_utils
 
 [pytest]
-cache_dir = "/data/martin"
+cache_dir = "."
 
 @pytest.mark.parametrize(
     "dataset_name",
