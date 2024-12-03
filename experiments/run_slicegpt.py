@@ -41,7 +41,7 @@ def slicing_arg_parser(interactive: bool = True) -> argparse.Namespace:
         "--cal-dataset",
         type=str,
         help="Dataset to calibrate and calculate perplexity on.",
-        choices=["wikitext2", "ptb", "c4", "alpaca", "legal"],
+        choices=["wikitext2", "ptb", "c4", "alpaca", "legal", "medical"],
         default="wikitext2",
     )
     parser.add_argument(

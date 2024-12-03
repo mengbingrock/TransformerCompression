@@ -8,6 +8,7 @@ import pathlib
 import shutil
 
 import syne_tune
+import os
 import torch
 import transformers
 import wandb
@@ -30,6 +31,8 @@ def get_optimizer_and_scheduler(model, train_dataset, config):
         weight_decay=config.weight_decay,
     )
 
+    
+
     kwargs_lr_scheduler = {
         "optimizer": optimizer,
         "num_warmup_steps": config.num_warmup_steps,
@@ -51,7 +54,8 @@ def get_optimizer_and_scheduler(model, train_dataset, config):
 class CustomTrainer(Trainer):
     def __init__(self, *args, train_loader=None, test_loader=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.model.config.pad_token_id)
+        #self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.model.config.pad_token_id)
+        self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index = -100)
         self.train_loader = train_loader
         self.test_loader = test_loader
 
@@ -106,6 +110,7 @@ def finetuning_arg_parser(interactive: bool = True) -> argparse.Namespace:
 
     parser.add_argument('--wandb-project', type=str, default="slicegpt-finetuning", help="wandb project name.")
     parser.add_argument('--no-wandb', action="store_true", help="Disable wandb.")
+    parser.add_argument('--varied_seqlen', action="store_true", help="varied seq")
     parser.add_argument(
         '--device',
         type=str,
@@ -118,7 +123,7 @@ def finetuning_arg_parser(interactive: bool = True) -> argparse.Namespace:
         "--ppl-eval-dataset",
         type=str,
         help="Dataset to evaluate perplexity.",
-        choices=["wikitext2", "ptb", "c4", "alpaca", "legal"],
+        choices=["wikitext2", "ptb", "c4", "alpaca", "legal", "medical"],
         default="wikitext2",
     )
     parser.add_argument(
@@ -137,7 +142,7 @@ def finetuning_arg_parser(interactive: bool = True) -> argparse.Namespace:
         "--finetune-dataset",
         type=str,
         help="Dataset to finetune on.",
-        choices=["wikitext2", "ptb", "c4", "alpaca", "legal"],
+        choices=["wikitext2", "ptb", "c4", "alpaca", "legal", "medical"],
         default="wikitext2",
     )
     parser.add_argument(
@@ -169,7 +174,7 @@ def finetuning_arg_parser(interactive: bool = True) -> argparse.Namespace:
     parser.add_argument('--max-grad-norm', type=float, default=1.0)
     parser.add_argument('--lr-scheduler-type', type=str, default="linear")
     parser.add_argument('--num-warmup-steps', type=int, default=400)
-    parser.add_argument('--gradient-accumulation-steps', type=int, default=4)
+    parser.add_argument('--gradient-accumulation-steps', type=int, default=1)
     parser.add_argument('--early-stopping-patience', type=int, default=5)
 
     parser.add_argument('--epochs', type=int, default=1)
@@ -213,11 +218,33 @@ def process_finetuning_args(args):
     else:
         raise argparse.ArgumentTypeError(f"Data type should be one of 'fp16', 'fp32'")
 
+        
+from torch.utils.data import Dataset, DataLoader
+from datasets import load_dataset
+
+class CustomDataset(Dataset):
+    def __init__(self, data):
+        """
+        Custom Dataset to wrap the data processed by generate_and_tokenize_prompt.
+        Args:
+            data: The processed dataset (list of dictionaries or similar format).
+        """
+        self.input_ids = [data[i]['input_ids'] for i in range(len(data))]
+        self.attn_mask = [data[i]['attention_mask'] for i in range(len(data))]
+
+    def __getitem__(self, idx):
+        return {"input_ids": self.input_ids[idx], "attention_mask": self.attn_mask[idx]}
+
+    def __len__(self):
+        return len(self.input_ids)
 
 def finetuning_main(args: argparse.Namespace) -> None:
     logging.info("Running SliceGPT post-slicing finetuning experiment")
     logging.info(f"PyTorch device: {config.device}")
     logging.info(f"Number of available cuda devices: {torch.cuda.device_count()}")
+
+    finetune_ds = data_utils.get_dataset(args.finetune_dataset)
+    print(finetune_ds["train"]['text'][0])
 
     try:
         wandb.init(project=args.wandb_project, config=args, mode='disabled' if args.no_wandb else None)
@@ -226,7 +253,6 @@ def finetuning_main(args: argparse.Namespace) -> None:
         # environment, e.g. notebook, IDE, no-shell process, etc. In this case, we want to continue without wandb.
         logging.info(f'Failed to initialize wandb: {e}, continuing without wandb')
         wandb.init(project=args.wandb_project, mode='disabled')
-
     if args.sliced_model_path:
         # load the sliced model
         logging.info(f"Loading sliced {args.model} model from {args.sliced_model_path} with sparsity {args.sparsity}")
@@ -241,6 +267,33 @@ def finetuning_main(args: argparse.Namespace) -> None:
         # load the original model
         logging.info(f"Loading {args.model} model")
         model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, args.model_path, token=args.hf_token)
+
+
+    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    tokenizer.padding_side = 'left'
+    model_adapter.model.resize_token_embeddings(len(tokenizer)) 
+
+    # get the dataset for finetuning
+    finetune_ds = data_utils.get_dataset(args.finetune_dataset)
+    print(finetune_ds["train"]['text'][0])
+    finetune_train_loader = data_utils.prepare_dataloader(
+        dataset=finetune_ds["train"],
+        tokenizer=tokenizer,
+        max_seqlen=args.finetune_train_seqlen,
+        batch_size=args.finetune_train_batch_size,
+        nsamples=args.finetune_train_nsamples,
+        varied_seqlen=args.varied_seqlen,
+        seed=args.seed,
+    )
+    finetune_test_loader = data_utils.prepare_dataloader(
+        dataset=finetune_ds["test"],
+        tokenizer=tokenizer,
+        max_seqlen=args.finetune_test_seqlen,
+        batch_size=args.finetune_test_batch_size,
+        nsamples=args.finetune_test_nsamples,
+        varied_seqlen=args.varied_seqlen,
+        seed=args.seed,
+    )
 
     # get the dataset for perplexity evaluation
     ppl_ds = data_utils.get_dataset(args.ppl_eval_dataset)
@@ -260,32 +313,13 @@ def finetuning_main(args: argparse.Namespace) -> None:
         model_adapter.model.to(config.device)
 
     # compute perplexity before finetuning
-    dataset_ppl = gpu_utils.evaluate_ppl(model_adapter.model, model_adapter.model.config.pad_token_id, ppl_eval_loader)
-    logging.info(f'PPL before finetuning: {dataset_ppl:.4f}')
-    wandb.log({"pre_finetune_ppl": dataset_ppl})
+    #dataset_ppl = gpu_utils.evaluate_ppl(model_adapter.model, model_adapter.model.config.pad_token_id, ppl_eval_loader)
+
+    #logging.info(f'PPL before finetuning: {dataset_ppl:.4f}')
+    #wandb.log({"pre_finetune_ppl": dataset_ppl})
 
     utils.cleanup_memory()
 
-    # get the dataset for finetuning
-    finetune_ds = data_utils.get_dataset(args.finetune_dataset)
-    finetune_train_loader = data_utils.prepare_dataloader(
-        dataset=finetune_ds["train"],
-        tokenizer=tokenizer,
-        max_seqlen=args.finetune_train_seqlen,
-        batch_size=args.finetune_train_batch_size,
-        nsamples=args.finetune_train_nsamples,
-        varied_seqlen=args.varied_seqlen,
-        seed=args.seed,
-    )
-    finetune_test_loader = data_utils.prepare_dataloader(
-        dataset=finetune_ds["test"],
-        tokenizer=tokenizer,
-        max_seqlen=args.finetune_test_seqlen,
-        batch_size=args.finetune_test_batch_size,
-        nsamples=args.finetune_test_nsamples,
-        varied_seqlen=args.varied_seqlen,
-        seed=args.seed,
-    )
 
     lora_config = LoraConfig(
         r=args.lora_r,
@@ -330,6 +364,7 @@ def finetuning_main(args: argparse.Namespace) -> None:
         args=training_args,
         optimizers=(optimizer, lr_scheduler),
         callbacks=[EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience)],
+        #data_collator=transformers.DataCollatorForSeq2Seg(tokenizer, pad_to_multiple_of=8,return_tensors="pt", padding=True)
     )
 
     # required to enable gradient_checkpointing

@@ -40,6 +40,13 @@ def evaluate_ppl(
     for batch in testloader:
         logging.debug(f"Evaluating batch {len(nlls)}")
         batch = utils.map_tensors(batch, config.device)
+        batch['input_ids'] = batch['input_ids'].to('cuda')
+        batch['attention_mask'] = batch['attention_mask'].to('cuda')
+        if 'labels' in batch: batch['labels'] = batch['labels'].to('cuda')
+            
+
+        #import pdb; pdb.set_trace() 
+        # batch should be a dict of tensor, not list !!!
         logits = model(**batch).logits
 
         # shift outputs and labels autoregressively.

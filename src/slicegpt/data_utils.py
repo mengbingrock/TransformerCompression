@@ -35,22 +35,39 @@ def get_dataset(name: str) -> datasets.DatasetDict:
         },
         "alpaca": {"path": "tatsu-lab/alpaca", "cols_to_remove": ['input', 'output', 'instruction']},
         "legal": {"path": "martinnnnn/ato-llm-legal"},
+        "medical": {"path": "medical_dataset"},
     }
+
+    #import pdb; pdb.set_trace()
 
     if name not in ds_properties:
         raise NotImplementedError("The provided dataset is not supported")
 
     properties = ds_properties[name]
-    ds = datasets.load_dataset(
-        properties["path"], name=properties.get("config_name"), data_files=properties.get("data_files")
-    )
+    import os
+    if not os.path.exists(properties["path"]):
+        ds = datasets.load_dataset(
+            properties["path"], name=properties.get("config_name"), data_files=properties.get("data_files")
+        )
+    else:
+        from datasets import load_from_disk
+        ds = load_from_disk(properties["path"])
 
+        def merge_columns(example):
+            example["merged_col"] = example["text"] + example["answer"]  # Replace 'prompt' with the actual column name
+            return example
+    
+        ds["train"] = ds["train"].map(merge_columns)
+        ds["train"] = ds["train"].remove_columns(["text"])
+        ds["train"] = ds["train"].remove_columns(["answer"])
+        ds["train"] = ds["train"].rename_column("merged_col", "text")
+    
     if "cols_to_remove" in properties:
         ds = ds.remove_columns(properties["cols_to_remove"])
 
     # if alpaca, create a test and validation set from the training set
-    if name == "alpaca":
-        ds = ds["train"].train_test_split(test_size=0.2, seed=42)
+    if name == "alpaca" or name == 'legal' or name == 'medical':
+        ds = ds["train"].train_test_split(test_size=0.01, seed=42)
         temp_ds = ds.pop("test")
         temp_ds = temp_ds.train_test_split(test_size=0.5, seed=42)
         ds["test"] = temp_ds["train"]
@@ -81,7 +98,6 @@ def prepare_test_dataloader(
     class TestDataset(Dataset):
         def __init__(self, ds, tokenizer, seqlen=2048):
             """Tokenize the entire dataset and reshape it into sequences of length seqlen."""
-
             tokenized_ds = tokenizer("\n\n".join(ds['text']), return_tensors='pt')
             nsamples = tokenized_ds.input_ids.numel() // seqlen
 
@@ -135,10 +151,9 @@ def prepare_dataloader(
         logging.warning(
             "varied_seqlen=False, but nsamples is not specified. This will lead to tokenization of the entire dataset, which will be slow."
         )
-
+         
     data_name = dataset.column_names[0]
     ds = dataset.filter(lambda x: len(x[data_name]) > 0)
-
     if not varied_seqlen:
         # create a new dataset where each example is a concatenation of multiple examples of total length = max_seqlen.
         data_list = ds[data_name]
@@ -166,23 +181,50 @@ def prepare_dataloader(
         ds = datasets.Dataset.from_dict({data_name: new_data_list})
 
     def tokenize(data_batch):
-        # tokenize then pad each batch according to the longest sequence in the batch
-        batch = tokenizer(
-            data_batch[data_name],
-            padding="longest",
+        tokenizer.padding_side="left"
+        
+        inputs = tokenizer(
+            data_batch['text'],
+            #padding="longest",
             max_length=max_seqlen,
             truncation=True,
-            return_tensors="pt",
+            #return_tensors="pt",
+            #add_special_tokens=True 
         )
-        batch["labels"] = batch["input_ids"].clone()
-        return batch
 
+        
+        
+        
+        input_ids = inputs["input_ids"] + [tokenizer.eos_token_id]
+        attention_mask = inputs["attention_mask"] + [1]
+        labels = input_ids
+        
+        return {
+                'input_ids': input_ids,
+                'attention_mask': attention_mask,
+                'labels': labels
+                }
+
+    
     # tokenize lazily
-    ds.set_transform(tokenize)
+    #ds.set_transform(tokenize)
+    ds = ds.map(tokenize)
+    ds = ds.remove_columns(['text'])
+    print('print ds after eos')
+    print(ds[0])
 
     torch.manual_seed(seed)
     sampler = SubsetRandomSampler(torch.randperm(len(ds))[:nsamples])
 
-    loader = DataLoader(ds, batch_size=batch_size, sampler=sampler)
+    from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, DataCollatorWithPadding, DataCollatorForSeq2Seq 
+    data_collator  = DataCollatorForSeq2Seq(tokenizer=tokenizer, padding=True)
+
+    loader = DataLoader(ds, batch_size=batch_size, sampler=sampler, collate_fn = data_collator)
+    
+    
+
+    '''for batch in loader:
+        print(batch)'''
+    
     logging.info(f"Preparing dataloader done")
     return loader

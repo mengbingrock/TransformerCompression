@@ -30,6 +30,7 @@ class CompressedLlamaDecoderLayer(LlamaDecoderLayer):
         past_key_value: tuple[Tensor] | None = None,
         output_attentions: bool | None = False,
         use_cache: bool | None = False,
+        cache_position = None,
         **kwargs,
     ) -> tuple:
         """

@@ -137,6 +137,13 @@ def load_sliced_model(
         uninitialized=True,
         token=token,
     )
+
+    
+    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    tokenizer.padding_side = 'left'
+    model_adapter.model.resize_token_embeddings(len(tokenizer))
+    
+    
     replace_layers(model_adapter)
     fuse_modules(model_adapter)
 
