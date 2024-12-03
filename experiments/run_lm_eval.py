@@ -148,9 +148,9 @@ def eval_main(args: argparse.Namespace) -> None:
         logging.info(f"Loading {args.model} model")
         model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, args.model_path, token=args.hf_token)
     
-    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    #tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     tokenizer.padding_side = 'left'
-    model_adapter.model.resize_token_embeddings(len(tokenizer))
+    #model_adapter.model.resize_token_embeddings(len(tokenizer))
 
     # the lm eval harness ties the weights, but this should not be done for sliced models unless the lm_head was sliced
     model_adapter.model.tie_weights = lambda: None

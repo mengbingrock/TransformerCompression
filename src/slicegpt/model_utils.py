@@ -42,9 +42,12 @@ def get_layer0_inputs(model_adapter: ModelAdapter, batch: Tensor) -> tuple[Tenso
     model_adapter.set_raw_layer_at(0, layer0_catcher)
 
     try:
+        #import pdb; pdb.set_trace()
+        print("!!!! device=", config.device)
         batch = utils.map_tensors(batch, device=config.device)
         model_adapter.model(**batch)
     except ValueError:
+        print('!!!! error map tensors')
         pass
 
     # grab the inputs and caught arguments

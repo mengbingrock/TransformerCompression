@@ -38,7 +38,7 @@ def evaluate_ppl(
 
     logging.info("Evaluating perplexity...")
     for batch in testloader:
-        logging.debug(f"Evaluating batch {len(nlls)}")
+        logging.info(f"Evaluating batch {len(nlls)} on device {config.device}")
         batch = utils.map_tensors(batch, config.device)
         batch['input_ids'] = batch['input_ids'].to('cuda')
         batch['attention_mask'] = batch['attention_mask'].to('cuda')

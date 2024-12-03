@@ -54,8 +54,8 @@ def get_optimizer_and_scheduler(model, train_dataset, config):
 class CustomTrainer(Trainer):
     def __init__(self, *args, train_loader=None, test_loader=None, **kwargs):
         super().__init__(*args, **kwargs)
-        #self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.model.config.pad_token_id)
-        self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index = -100)
+        self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.model.config.pad_token_id)
+        #self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index = -100)
         self.train_loader = train_loader
         self.test_loader = test_loader
 
@@ -269,9 +269,9 @@ def finetuning_main(args: argparse.Namespace) -> None:
         model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, args.model_path, token=args.hf_token)
 
 
-    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    #tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     tokenizer.padding_side = 'left'
-    model_adapter.model.resize_token_embeddings(len(tokenizer)) 
+    #model_adapter.model.resize_token_embeddings(len(tokenizer)) 
 
     # get the dataset for finetuning
     finetune_ds = data_utils.get_dataset(args.finetune_dataset)

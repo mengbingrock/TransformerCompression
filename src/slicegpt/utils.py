@@ -7,6 +7,7 @@ import inspect
 import logging
 import pathlib
 from typing import TypeVar
+import transformers
 
 import torch
 
@@ -85,7 +86,7 @@ def map_tensors(obj: T, device: torch.device | str | None = None, dtype: torch.d
         return obj
     elif isinstance(obj, (list, tuple)):
         return type(obj)(map_tensors(x, device, dtype) for x in obj)
-    elif isinstance(obj, dict):
+    elif isinstance(obj, (dict, transformers.tokenization_utils_base.BatchEncoding)):
         return {k: map_tensors(v, device, dtype) for k, v in obj.items()}  # type: ignore
     else:
         return obj
